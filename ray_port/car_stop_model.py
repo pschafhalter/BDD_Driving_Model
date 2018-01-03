@@ -190,6 +190,7 @@ tf.app.flags.DEFINE_float('action_mapping_C', 100.0, '')
 
 
 FLAGS = tf.app.flags.FLAGS
+FLAGS._parse_flags()
 flags_serialized = ray_util.flags_serializer(FLAGS)
 
 def convert_name(name, new_prefix):

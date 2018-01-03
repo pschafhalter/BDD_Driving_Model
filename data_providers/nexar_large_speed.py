@@ -11,7 +11,7 @@ import util_car
 import scipy.misc as misc
 import glob
 import multiprocessing
-from cStringIO import StringIO
+# from cStringIO import StringIO
 from PIL import Image
 import cv2
 import ctypes
@@ -459,8 +459,8 @@ class MyDataset(Dataset):
                   'turn_left_slight': 4, 'turn_right_slight': 5,}
                   #'acceleration': 6, 'deceleration': 7}
 
-    turn_int2str={y: x for x, y in turn_str2int.iteritems()}
-    naction = np.sum(np.less_equal(0, np.array(turn_str2int.values())))
+    turn_int2str={y: x for x, y in turn_str2int.items()}
+    naction = np.sum(np.less_equal(0, np.array(list(turn_str2int.values()))))
 
     @staticmethod
     def turning_heuristics(speed_list, speed_limit_as_stop=0):
