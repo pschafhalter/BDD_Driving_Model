@@ -30,7 +30,7 @@ import importlib, sys, time
 
 IMSZ = 228
 
-#@ray.remote
+@ray.remote
 class Wrapper:
     def __init__(self, model_config_name, model_path, truncate_len=20, config_name="config", config_path=".", is_lstm=False):
         ray_util.flags_serialized = flags_serialized
@@ -53,6 +53,10 @@ class Wrapper:
         config_fun = getattr(config, model_config_name)
         config_fun("eval")
         common_config_post("eval")
+
+        # config.py changes FLAGS, so we re-serialize
+        ray_util.reserialize_flags(FLAGS)
+
 
         # Tensors in has the format: [images, speed] for basic usage, excluding only_seg
         # For now, we decide not to support previous speed as input, thus we use a fake speed (-1) now
