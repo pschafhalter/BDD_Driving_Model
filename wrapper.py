@@ -11,21 +11,30 @@ import models.car_stop_model as model
 from scipy.misc import imresize
 import numpy as np
 
+import ray
+
 # The following import populates some FLAGS default value
 import data_providers.nexar_large_speed
 import batching
 import dataset
 import util_car
+import ray_util
 
 FLAGS = tf.app.flags.FLAGS
 flags_passthrough = FLAGS._parse_flags()
+ray_util.serialize_flags()
+flags_serialized = ray_util.flags_serialized
+
 from config import common_config, common_config_post
 import importlib, sys, time
 
 IMSZ = 228
 
+#@ray.remote
 class Wrapper:
     def __init__(self, model_config_name, model_path, truncate_len=20, config_name="config", config_path=".", is_lstm=False):
+        ray_util.flags_serialized = flags_serialized
+        FLAGS = ray_util.deserialize_flags()
         self.is_lstm = is_lstm
         if is_lstm:
             assert truncate_len==1, \
@@ -62,6 +71,7 @@ class Wrapper:
                                                  name="state_placeholder2")), )
 
             FLAGS.phase = "rnn_inference"
+            ray_util.reserialize_flags(FLAGS)
         else:
             self.initial_state = None
         logits_all = model.inference([self.tensors_in, self.speed], -1, for_training=False,

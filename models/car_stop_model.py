@@ -23,6 +23,8 @@ from models.kaffe.caffenet import CaffeNet
 #from models.kaffe.caffenet_dilation import CaffeNet_dilation
 from models.kaffe.caffenet_dilation8 import CaffeNet_dilation8
 
+import ray_util
+
 TOWER_NAME = 'tower'
 BATCHNORM_MOVING_AVERAGE_DECAY=0.9997
 MOVING_AVERAGE_DECAY=0.9999
@@ -186,8 +188,6 @@ tf.app.flags.DEFINE_float('action_mapping_threshold', 0.05,
 tf.app.flags.DEFINE_float('action_mapping_C', 100.0, '')
 
 
-FLAGS = tf.app.flags.FLAGS
-
 def convert_name(name, new_prefix):
     if not ("TrainStage" in name):
         return name
@@ -197,6 +197,8 @@ def convert_name(name, new_prefix):
         return "/".join(sp)
 
 def inference(net_inputs, num_classes, for_training=False, scope=None, initial_state=None):
+    FLAGS = ray_util.deserialize_flags()
+
     #weight_decay = 0.0005 # disable weight decay and add all of them back in the end.
     weight_decay = 0.0
     bias_initialize_value = 0.1
@@ -289,6 +291,7 @@ def inference(net_inputs, num_classes, for_training=False, scope=None, initial_s
     return logits
 
 def LRCN(net_inputs, num_classes, for_training, initial_state=None):
+    FLAGS = ray_util.deserialize_flags()
     # network inputs are list of tensors:
     # 5D images(NFHWC), valid labels (NF*1), egomotion list (NF*previous_steps*3), this video's name (string)
     if FLAGS.data_provider == "nexar_large_speed":
@@ -449,17 +452,17 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             lstms = []
             for hidden in splits:
                 lstms.append(tf.nn.rnn_cell.BasicLSTMCell(hidden, state_is_tuple=True))
-            stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(lstms, state_is_tuple=True)
+            stacked_lstm = tf.contrib.rnn.MultiRNNCell(lstms, state_is_tuple=True)
 
             # feed into rnn
-            feature_unpacked = tf.unpack(all_features, axis=1)
+            feature_unpacked = tf.unstack(all_features, axis=1)
 
             if initial_state is not None:
                 begin_state = initial_state
             else:
                 begin_state = stacked_lstm.zero_state(shape[0], dtype=tf.float32)
 
-            output, state = tf.nn.rnn(stacked_lstm,
+            output, state = tf.contrib.rnn.static_rnn(stacked_lstm,
                                       feature_unpacked,
                                       dtype=tf.float32,
                                       initial_state=begin_state)
@@ -468,7 +471,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             ################Final Classification#################
             # concatentate outputs into a single tensor, the output size is (batch*nframe, hidden[-1])
 
-            hidden_out = tf.pack(output, axis=1, name='pack_rnn_outputs')
+            hidden_out = tf.stack(output, axis=1, name='pack_rnn_outputs')
             hidden_out = tf.reshape(hidden_out, [shape[0] * shape[1], -1])
 
         elif FLAGS.temporal_net.lower() == "convlstm":
@@ -478,7 +481,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             # reshape the all_features into a 5D tensor
             all_features = tf.reshape(all_features, shape[0:2] + image_feature_dim[1:])
             # feed into rnn
-            cur_inp = tf.unpack(all_features, axis=1)
+            cur_inp = tf.unstack(all_features, axis=1)
 
             # extract the ConvLSTM architecture parameters
             def str_to_int_list(str):
@@ -509,7 +512,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
 
                 # the max pool to reduce dimensions
                 if pools[ilayer]>1:
-                    merged = tf.pack(cur_inp, axis=1, name='concat_before_max_pool')
+                    merged = tf.stack(cur_inp, axis=1, name='concat_before_max_pool')
                     merged_shape = [x.value for x in merged.get_shape()]
                     merged = tf.reshape(merged, [shape[0]*shape[1]]+merged_shape[2:])
                     merged = slim.max_pool2d(merged,
@@ -517,7 +520,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
                                              stride=pools[ilayer])
                     merged_shape = [x.value for x in merged.get_shape()]
                     merged = tf.reshape(merged, shape[0:2]+merged_shape[1:])
-                    cur_inp = tf.unpack(merged, axis = 1)
+                    cur_inp = tf.unstack(merged, axis = 1)
             output = cur_inp
             ################Final Classification#################
             # concatentate outputs into a single tensor, the output size is (batch*nframe, H', W', C')
@@ -525,7 +528,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             # remove the spatio dimensions to be compatible with the code before
             #hidden_out = tf.reshape(hidden_out, [shape[0]*shape[1], -1])
 
-            hidden_out = tf.pack(output, axis=1, name='pack_rnn_outputs')
+            hidden_out = tf.stack(output, axis=1, name='pack_rnn_outputs')
             hidden_out = tf.reshape(hidden_out, [shape[0] * shape[1], -1])
         else:
             raise ValueError("temporal_net invalid: %s" % FLAGS.temporal_net)
@@ -609,6 +612,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
     # it's only used as input to the 1. loss function and 2. _classification evaluation
 
 def motion_tower(stage_status, image_features):
+    FLAGS = ray_util.deserialize_flags()
     with tf.variable_scope(stage_status):
         with tf.variable_scope('Ptrain'):
             if FLAGS.ss_bottleneck_arch:
@@ -631,6 +635,7 @@ def motion_tower(stage_status, image_features):
     return image_features
 
 def privileged_training(net_inputs, num_classes, for_training, stage_status, images, shape):
+    FLAGS = ray_util.deserialize_flags()
     if FLAGS.data_provider == "nexar_large_speed":
         city_ims = net_inputs[3]
     else:
@@ -698,12 +703,15 @@ def privileged_training(net_inputs, num_classes, for_training, stage_status, ima
 
 
 def CNN_FC(net_inputs, num_classes, for_training, initial_state=None):
+    FLAGS = ray_util.deserialize_flags()
     FLAGS.temporal_net = "TCNN"
+    ray_util.reserialize_flags(FLAGS)
     return LRCN(net_inputs, num_classes, for_training)
 
 ##################### Various Loss Functions ##########################
 # fingerprint: loss(logits, labels)
 def loss_car_stop(logits, net_outputs, batch_size=None):
+    FLAGS = ray_util.deserialize_flags()
     # net_outputs contains is_stop
     labels = net_outputs[0]    # shape: N * F
     # reshape to 1 dimension
@@ -730,6 +738,7 @@ def loss_car_stop(logits, net_outputs, batch_size=None):
     slim.losses.softmax_cross_entropy(prediction, dense_labels, weight = mask)
 
 def loss_car_discrete(logits, net_outputs, batch_size=None):
+    FLAGS = ray_util.deserialize_flags()
     # net_outputs contains is_stop, turn
     dense_labels = net_outputs[1]    # shape: N * F * nclass
     # reshape to 2 dimension
@@ -794,6 +803,7 @@ def samples_to_bins(samples, nbins, minwidth):
     return out
 
 def get_bins_datadriven():
+    FLAGS = ray_util.deserialize_flags()
     global datadriven_bins_cache
     if datadriven_bins_cache is not None:
         return copy.deepcopy(datadriven_bins_cache)
@@ -822,6 +832,7 @@ def get_bins_datadriven():
     return datadriven_bins_cache
 
 def get_bins_linear():
+    FLAGS = ray_util.deserialize_flags()
     n = FLAGS.discretize_n_bins
     # the minimum must > 0, otherwise is in conflict with the lower bound
     min_s = 0
@@ -837,6 +848,7 @@ def get_bins_linear():
     return list(course_bin), list(speed_bin[1:])
 
 def get_bins_log():
+    FLAGS = ray_util.deserialize_flags()
     assert FLAGS.discretize_n_bins % 2 == 1
     def get_logspace(vstart, vend, ntotal):
         # return a log space with ntotal points, the first being vstart, end being vend
@@ -860,6 +872,7 @@ def get_bins_log():
     return course_bin, speed_bin
 
 def get_bins_custom():
+    FLAGS = ray_util.deserialize_flags()
     n=FLAGS.discretize_n_bins
     assert n==22
 
@@ -920,6 +933,7 @@ def smooth_gaussian(a, sigma, axis=-1):
     return b
 
 def sparse_to_dense_smooth(sparse):
+    FLAGS = ray_util.deserialize_flags()
 
     l = len(sparse)
     out = np.zeros((l, FLAGS.discretize_n_bins), dtype=np.float32)
@@ -937,6 +951,7 @@ def call_label_to_dense_smooth(labels):
     return [course, speed]
 
 def loss_car_loc_xy(logits, net_outputs, batch_size=None):
+    FLAGS = ray_util.deserialize_flags()
     # net_outputs contains is_stop, turn, locs
     future_labels = net_outputs[2]    # shape: N * F * 2
     # reshape to 2 dimension
@@ -975,6 +990,7 @@ def loss_car_loc_xy(logits, net_outputs, batch_size=None):
                                       scope="cross_entropy_loss/speed",
                                       weight=masks[1])
 def city_loss(city_prediction, seg_mask):
+    FLAGS = ray_util.deserialize_flags()
     #get shape
     city_pred_shape = [x.value for x in city_prediction.get_shape()]
     city_seg_shape = [x.value for x in seg_mask.get_shape()]
@@ -1010,6 +1026,7 @@ def city_loss(city_prediction, seg_mask):
                              weight=FLAGS.ptrain_weight)
 ##################### Loss Functions of the jointly discritized #########
 def course_speed_to_joint_bin(labels):
+    FLAGS = ray_util.deserialize_flags()
     # each of the labels[i, :] is the course and speed
     # convert each pair to the corresponding bin location
     course, speed = course_speed_to_discrete(labels)
@@ -1036,6 +1053,7 @@ def course_speed_to_joint_bin(labels):
 
 
 def loss_car_joint(logits, net_outputs, batch_size=None, masks=None):
+    FLAGS = ray_util.deserialize_flags()
     # net_outputs contains is_stop, turn, locs
     future_labels = net_outputs[2]    # shape: N * F * 2
     # reshape to 2 dimension
@@ -1089,6 +1107,7 @@ def py_is_mkz(names, ntotal):
 
 
 def loss2joint(logits, net_outputs):
+    FLAGS = ray_util.deserialize_flags()
     # compute the weight to see which are nexar / MKZ datasets
     ninstance = logits[0].get_shape()[0].value
     masks = tf.py_func(py_is_mkz,
@@ -1109,6 +1128,7 @@ def loss2joint(logits, net_outputs):
         tf.add_to_collection(tf.GraphKeys.LOSSES, loss)
 
 def loss(logits, net_outputs, batch_size=None):
+    FLAGS = ray_util.deserialize_flags()
     if FLAGS.city_data:
         #city seg loss
         city_logits = logits[1]
@@ -1135,6 +1155,7 @@ def pdf_bins(bins, prob, query):
 
     # Make sure that bins[0] and bins[-1] are the same for every method
     # otherwise the comparision won't be fair
+    FLAGS = ray_util.deserialize_flags()
 
     if query < bins[0]:
         query = bins[0]
@@ -1151,6 +1172,7 @@ def pdf_bins(bins, prob, query):
 
 
 def pdf_bins_batch(bins, prob, querys):
+    FLAGS = ray_util.deserialize_flags()
     assert (len(bins) == len(prob) + 1)
 
     querys = np.array(querys)
@@ -1170,6 +1192,7 @@ def pdf_bins_batch(bins, prob, querys):
 
 
 def pdf_bins_batch_2D(cs_bins, prob, querys):
+    FLAGS = ray_util.deserialize_flags()
     # assume the input cs_bins are augmented with the bounds
     cbin, sbin = cs_bins
     cbin = np.array(cbin)
@@ -1197,6 +1220,7 @@ def pdf_bins_batch_2D(cs_bins, prob, querys):
 
 # this is called from continous_pdf function
 def continous_pdf_car_loc_xy(logits, labels):
+    FLAGS = ray_util.deserialize_flags()
     # the first entry is the predicted logits
     # first part is course and second part is speed
     logits = logits[0]
@@ -1231,6 +1255,7 @@ def continous_pdf_car_loc_xy(logits, labels):
     return out
 
 def continous_pdf_car_joint(logits, labels):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     softmaxed = util_car.softmax(logits)
 
@@ -1254,6 +1279,7 @@ def continous_pdf_car_joint(logits, labels):
 
 # used in the wrapper and draw_sector
 def multi_querys_car_loc_xy_impl(logits, querys):
+    FLAGS = ray_util.deserialize_flags()
     # the first entry is the predicted logits
     # first part is course and second part is speed
     logits = logits[0]
@@ -1290,6 +1316,7 @@ def multi_querys_car_loc_xy(logits, querys):
 
 # change the definition of this function to input a list of (c, s) pairs
 def multi_querys_car_joint(logits, querys):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     softmaxed = util_car.softmax(logits)
 
@@ -1308,6 +1335,7 @@ def continous_pdf(logits, labels, prefix="continous_pdf"):
     # logits are the list of logit outputed by the network
     # labels are the list of ground truth labels
     # both of them are python object, not tensorflow object
+    FLAGS = ray_util.deserialize_flags()
     func = globals()["%s_%s" % (prefix, FLAGS.sub_arch_selection)]
     return func(logits, labels)
     # return the log prob of the observations
@@ -1315,6 +1343,7 @@ def continous_pdf(logits, labels, prefix="continous_pdf"):
 
 ########## MAP of continous distribution #################
 def continous_MAP_car_loc_xy_log(logits):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     n = FLAGS.discretize_n_bins
     course = logits[:, 0:n]
@@ -1348,6 +1377,7 @@ def continous_MAP_car_loc_xy_log(logits):
     return np.stack((course_inter, speed_inter), axis=1)
 
 def continous_MAP_car_loc_xy_linear(logits):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     n = FLAGS.discretize_n_bins
     predicts = [logits[:, 0:n], logits[:, n: ]]
@@ -1389,6 +1419,7 @@ def MAP_custom_bin_helper(predicted_cs_argmax):
     return inters
 
 def continous_MAP_car_loc_xy_custom(logits):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     n = FLAGS.discretize_n_bins
     predicts = [logits[:, 0:n], logits[:, n: ]]
@@ -1405,6 +1436,7 @@ def continous_MAP_car_loc_xy_datadriven(logits):
     return continous_MAP_car_loc_xy_custom(logits)
 
 def continous_MAP_car_joint_joint(logits):
+    FLAGS = ray_util.deserialize_flags()
     logits = logits[0]
     n = int(FLAGS.discretize_n_bins)
 
@@ -1418,6 +1450,7 @@ def continous_MAP_car_joint_joint(logits):
 # We should pick the largest density!!!
 # all of our implementation here is largest bin
 def continous_MAP(logits, return_second_best=False):
+    FLAGS = ray_util.deserialize_flags()
     func = globals()["continous_MAP_%s_%s" %
                      (FLAGS.sub_arch_selection, FLAGS.discretize_bin_type)]
     if return_second_best and FLAGS.discretize_bin_type!="joint":
@@ -1463,5 +1496,6 @@ def stage_classic_finetune():
     return ans
 
 def learning_rate_multipliers():
+    FLAGS = ray_util.deserialize_flags()
     method = globals()[FLAGS.train_stage_name]
     return method()
