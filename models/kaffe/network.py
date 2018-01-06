@@ -52,7 +52,7 @@ class Network(object):
         self.use_dropout = use_dropout
         # net_weights initializer, could be None if don't want to restore weights
         if net_weights:
-            self.data_dict = np.load(net_weights).item()
+            self.data_dict = np.load(net_weights, encoding="latin1").item()
         self.setup()
 
     def setup(self):
@@ -66,7 +66,7 @@ class Network(object):
         session: The current TensorFlow session
         ignore_missing: If true, serialized weights for missing layers are ignored.
         '''
-        data_dict = np.load(data_path).item()
+        data_dict = np.load(data_path, encoding="latin1").item()
         for op_name in data_dict:
             with tf.variable_scope(op_name, reuse=True):
                 for param_name, data in data_dict[op_name].iteritems():
@@ -84,7 +84,7 @@ class Network(object):
         assert len(args) != 0
         self.terminals = []
         for fed_layer in args:
-            if isinstance(fed_layer, basestring):
+            if isinstance(fed_layer, str):
                 try:
                     fed_layer = self.layers[fed_layer]
                 except KeyError:
@@ -178,7 +178,7 @@ class Network(object):
             convolve = lambda i, k: tf.nn.atrous_conv2d(i, k, padding=padding, rate=rate)
 
         with tf.variable_scope(name) as scope:
-            kernel = self.make_var('weights', shape=[k_h, k_w, c_i / group, c_o])
+            kernel = self.make_var('weights', shape=[k_h, k_w, c_i.value // group, c_o])
             print("weight decay inside network.py = ", weight_decay)
             if weight_decay > 1e-8:
                 reg = weight_decay * tf.nn.l2_loss(kernel, name+'_weight_norm')
@@ -188,11 +188,11 @@ class Network(object):
                 output = convolve(input, kernel)
             else:
                 # Split the input into groups and then convolve each of them independently
-                input_groups = tf.split(3, group, input)
-                kernel_groups = tf.split(3, group, kernel)
+                input_groups = tf.split(input, group, 3)
+                kernel_groups = tf.split(kernel, group, 3)
                 output_groups = [convolve(i, k) for i, k in zip(input_groups, kernel_groups)]
                 # Concatenate the groups
-                output = tf.concat(3, output_groups)
+                output = tf.concat(output_groups, 3)
             # Add the biases
             if biased:
                 biases = self.make_var('biases', [c_o])
@@ -200,7 +200,7 @@ class Network(object):
             if relu:
                 # ReLU non-linearity
                 output = tf.nn.relu(output, name=scope.name)
-            print(output.get_shape())
+            print(output.get_shape().as_list())
             return output
 
     @layer
@@ -236,7 +236,7 @@ class Network(object):
 
     @layer
     def concat(self, inputs, axis, name):
-        return tf.concat(concat_dim=axis, values=inputs, name=name)
+        return tf.concat(inputs, axis, name=name)
 
     @layer
     def add(self, inputs, name):
@@ -245,7 +245,7 @@ class Network(object):
     @layer
     def fc_bak(self, input, num_out, name, relu=True):
         with tf.variable_scope(name) as scope:
-            input_shape = input.get_shape()
+            input_shape = input.get_shape().as_list()
             if input_shape.ndims == 4:
                 # The input is spatial. Vectorize it first.
                 dim = 1
@@ -312,7 +312,7 @@ class Network(object):
         mean_BGR = np.reshape(mean_BGR, mean_shape)
 
         # channel swap
-        reverse_dim = [False for _ in range(shape.ndims - 1)] + [True]
+        reverse_dim =  [shape.ndims - 1] # [False for _ in range(shape.ndims - 1)] + [True]
         images = tf.reverse(images, reverse_dim)
 
         # cast type
@@ -325,7 +325,7 @@ class Network(object):
 
     @layer
     def softmax(self, input, name):
-        input_shape = map(lambda v: v.value, input.get_shape())
+        input_shape = map(lambda v: v.value, input.get_shape().as_list())
         if len(input_shape) > 2:
             # For certain models (like NiN), the singleton spatial dimensions
             # need to be explicitly squeezed, since they're not broadcast-able
@@ -348,7 +348,7 @@ class Network(object):
                     param_inits['beta']=self.get_saved_value('offset')
                     param_inits['gamma']=self.get_saved_value('scale')
 
-                shape = [input.get_shape()[-1]]
+                shape = [input.get_shape().as_list()[-1]]
                 for key in param_inits:
                     param_inits[key] = np.reshape(param_inits[key], shape)
                 norm_params['param_initializers'] = param_inits

@@ -11,7 +11,7 @@ import util_car
 import scipy.misc as misc
 import glob
 import multiprocessing
-from cStringIO import StringIO
+import io
 from PIL import Image
 import cv2
 import ctypes
@@ -293,7 +293,7 @@ class MyDataset(Dataset):
 
     def decode_jpeg_concat(self, image_buffer, scope=None):
         with tf.op_scope([image_buffer], scope, 'decode_jpeg'):
-            length = image_buffer.get_shape()[0].value
+            length = image_buffer.get_shape().as_list()[0].value
             all = []
             for i in range(length):
                 decoded = tf.image.decode_jpeg(image_buffer[i],
@@ -308,7 +308,7 @@ class MyDataset(Dataset):
 
     def decode_jpeg_batch(self, image_buffer, scope=None):
         with tf.op_scope([image_buffer], scope, 'decode_jpeg'):
-            length = image_buffer.get_shape()[0].value
+            length = image_buffer.get_shape().as_list()[0].value
             queue=tf.train.string_input_producer(
                 image_buffer,
                 num_epochs=None,
@@ -459,8 +459,8 @@ class MyDataset(Dataset):
                   'turn_left_slight': 4, 'turn_right_slight': 5,}
                   #'acceleration': 6, 'deceleration': 7}
 
-    turn_int2str={y: x for x, y in turn_str2int.iteritems()}
-    naction = np.sum(np.less_equal(0, np.array(turn_str2int.values())))
+    turn_int2str={y: x for x, y in turn_str2int.items()}
+    naction = np.sum(np.less_equal(0, np.array(list(turn_str2int.values()))))
 
     @staticmethod
     def turning_heuristics(speed_list, speed_limit_as_stop=0):
@@ -842,7 +842,7 @@ class MyDataset(Dataset):
         batching_inputs += [decoded_raw]
         batched = [self.batching(x, len_downsampled) for x in batching_inputs]
 
-        name = tf.tile(name, [batched[0].get_shape()[0].value])
+        name = tf.tile(name, [batched[0].get_shape().as_list()[0].value])
 
         ins = batched[0:2] + [name]
         outs = batched[2:5]
@@ -896,7 +896,7 @@ class MyDataset(Dataset):
             retained = tf.py_func(self.no_stop_dropout_valid,
                                   [outs[0], FLAGS.balance_drop_prob],
                                   [tf.bool])[0]
-            retained.set_shape([ outs[0].get_shape()[0].value ])
+            retained.set_shape([ outs[0].get_shape().as_list()[0].value ])
 
             select = lambda tensors, valid: [util.bool_select(x, valid) for x in tensors]
             ins = select(ins, retained)
@@ -908,11 +908,11 @@ class MyDataset(Dataset):
 
         batch_len = FRAMES_IN_SEG // T
         valid_len = batch_len * T
-        dim = tensor.get_shape().ndims
+        dim = tensor.get_shape().as_list().ndims
         tensor = tf.slice(tensor, [0]*dim, [valid_len] + [-1] * (dim-1))
 
-        # should use tensor.get_shape()[i].value to get a real number
-        new_shape = [batch_len, T] + [x.value for x in tensor.get_shape()[1:]]
+        # should use tensor.get_shape().as_list()[i].value to get a real number
+        new_shape = [batch_len, T] + [x.value for x in tensor.get_shape().as_list()[1:]]
         tensor = tf.reshape(tensor, new_shape)
         return tensor
 
@@ -937,7 +937,7 @@ class MyDataset(Dataset):
             with tf.variable_scope("distort_video"):
                 print("using random crop and brightness and constrast jittering")
                 # shape = B F H W C
-                shape = [x.value for x in images.get_shape()]
+                shape = [x.value for x in images.get_shape().as_list()]
                 images = tf.random_crop(images, [shape[0], shape[1],
                                                  int(shape[2]*0.8),
                                                  int(shape[3]*0.8),
@@ -959,9 +959,9 @@ class MyDataset(Dataset):
 
         if FLAGS.use_perspective_augmentation:
             images = net_inputs[0] # shape:: N * F * HWC
-            images_shape = [x.value for x in images.get_shape()]
+            images_shape = [x.value for x in images.get_shape().as_list()]
             future_labels = net_outputs[2]  # shape: N * F * 2
-            future_labels_shape = [x.value for x in future_labels.get_shape()]
+            future_labels_shape = [x.value for x in future_labels.get_shape().as_list()]
 
             images, future_labels = tf.py_func(MyDataset.perspective_changes,
                                                [images, future_labels],

@@ -409,7 +409,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
                     all_features[i] = tf.nn.l2_normalize(all_features[i], 2)
 
         # all_features have shape: B, F, #features
-        all_features = tf.concat(2, all_features)
+        all_features = tf.concat(all_features, 2)
         ############# the RNN temporal part #############
         # get hidden layer config from commandline
         if FLAGS.dropout_LSTM_keep_prob > 0:
@@ -690,7 +690,7 @@ def privileged_training(net_inputs, num_classes, for_training, stage_status, ima
 
             pred = tf.image.resize_nearest_neighbor(pred,[shape[2], shape[3]])
             city_ims = tf.cast(city_ims, tf.uint8)
-            pred = tf.concat(2,[city_ims, pred])
+            pred = tf.concat([city_ims, pred], 2)
 
             tf.image_summary("segmentation_visualization", pred, max_images=113)
 
@@ -720,7 +720,7 @@ def loss_car_stop(logits, net_outputs, batch_size=None):
 
     if FLAGS.class_balance_path!="":
         path = FLAGS.class_balance_path + "_stop.npy"
-        empirical_distribution = np.load(path)
+        empirical_distribution = np.load(path, encoding="latin1")
         weights = util.loss_weights(empirical_distribution, FLAGS.class_balance_epsilon)
         print("using weighted training: ", weights)
         mask = tf.gather(weights, labels)
@@ -738,7 +738,7 @@ def loss_car_discrete(logits, net_outputs, batch_size=None):
 
     if FLAGS.class_balance_path!="":
         path = FLAGS.class_balance_path + "_discrete.npy"
-        empirical_distribution = np.load(path)
+        empirical_distribution = np.load(path, encoding="latin1")
         weights = util.loss_weights(empirical_distribution, FLAGS.class_balance_epsilon)
         print("using weighted training: ", weights)
         # assume the label being the max response at that point
@@ -806,7 +806,7 @@ def get_bins_datadriven():
     if not os.path.isfile(path):
         raise ValueError("data driven bins has to provide the stat file")
 
-    dists = np.load(path)
+    dists = np.load(path, encoding="latin1")
     courses = dists[:, 0]
     courses = courses[np.logical_and(courses > math.radians(-89.9),
                                      courses < math.radians(89.9))]
@@ -951,7 +951,7 @@ def loss_car_loc_xy(logits, net_outputs, batch_size=None):
 
     if FLAGS.class_balance_path!="":
         path = FLAGS.class_balance_path + "_continuous.npy"
-        dists = np.load(path)
+        dists = np.load(path, encoding="latin1")
 
         masks = []
         dense_labels = [dense_course, dense_speed]
@@ -1050,7 +1050,7 @@ def loss_car_joint(logits, net_outputs, batch_size=None, masks=None):
         pass
     elif FLAGS.class_balance_path!="":
         path = FLAGS.class_balance_path + "_joint.npy"
-        dist = np.load(path)
+        dist = np.load(path, encoding="latin1")
 
         weights = util.loss_weights(dist, FLAGS.class_balance_epsilon)
         print("using weighted training: ", weights)
