@@ -504,7 +504,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
                                                                 state_is_tuple=True)
 
                 zero_state = conv_lstm.zero_state(shape[0], dtype=tf.float32)
-                cur_inp, state = tf.nn.rnn(conv_lstm,
+                cur_inp, state = tf.contrib.rnn.static_rnn(conv_lstm,
                                            cur_inp,
                                            dtype=tf.float32,
                                            initial_state=zero_state)
@@ -576,8 +576,8 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
         # set shape
         logits[0].set_shape(old_shape)
 
-    if FLAGS.phase == "rnn_inference":
-        logits += [state]
+    # if FLAGS.phase == "rnn_inference":
+    #     logits += [state]
 
     if FLAGS.action_mapping_arch != "":
         # first make sure that the different functions that modify logits doesn't collide
