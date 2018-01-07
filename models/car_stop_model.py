@@ -573,8 +573,8 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
         # set shape
         logits[0].set_shape(old_shape)
 
-    if FLAGS.phase == "rnn_inference":
-        logits += [state]
+    # if FLAGS.phase == "rnn_inference":
+    #    logits += [state]
 
     if FLAGS.action_mapping_arch != "":
         # first make sure that the different functions that modify logits doesn't collide

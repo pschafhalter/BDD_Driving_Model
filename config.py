@@ -10,7 +10,7 @@ FLAGS = tf.app.flags.FLAGS
 
 ############################Set those path before use###################################
 FLAGS.pretrained_model_path = "data/tf.caffenet.bin"
-FLAGS.data_dir = "/data/yang_cache/tfrecord_release/tfrecords"
+FLAGS.data_dir = "~/samples-1k/tfrecords"
 
 # for privilege training: segmentation image index and labels
 train_city_image_list = '/backup/BDDNexar/Harry_config/Color_train_harry.txt'
