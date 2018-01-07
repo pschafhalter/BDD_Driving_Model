@@ -452,14 +452,14 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(lstms, state_is_tuple=True)
 
             # feed into rnn
-            feature_unpacked = tf.unpack(all_features, axis=1)
+            feature_unpacked = tf.unstack(all_features, axis=1)
 
             if initial_state is not None:
                 begin_state = initial_state
             else:
                 begin_state = stacked_lstm.zero_state(shape[0], dtype=tf.float32)
 
-            output, state = tf.nn.rnn(stacked_lstm,
+            output, state = tf.contrib.rnn.static_rnn(stacked_lstm,
                                       feature_unpacked,
                                       dtype=tf.float32,
                                       initial_state=begin_state)
@@ -468,7 +468,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             ################Final Classification#################
             # concatentate outputs into a single tensor, the output size is (batch*nframe, hidden[-1])
 
-            hidden_out = tf.pack(output, axis=1, name='pack_rnn_outputs')
+            hidden_out = tf.stack(output, axis=1, name='pack_rnn_outputs')
             hidden_out = tf.reshape(hidden_out, [shape[0] * shape[1], -1])
 
         elif FLAGS.temporal_net.lower() == "convlstm":
@@ -478,7 +478,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             # reshape the all_features into a 5D tensor
             all_features = tf.reshape(all_features, shape[0:2] + image_feature_dim[1:])
             # feed into rnn
-            cur_inp = tf.unpack(all_features, axis=1)
+            cur_inp = tf.unstack(all_features, axis=1)
 
             # extract the ConvLSTM architecture parameters
             def str_to_int_list(str):
@@ -501,7 +501,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
                                                                 state_is_tuple=True)
 
                 zero_state = conv_lstm.zero_state(shape[0], dtype=tf.float32)
-                cur_inp, state = tf.nn.rnn(conv_lstm,
+                cur_inp, state = tf.contrib.rnn.static_rnn(conv_lstm,
                                            cur_inp,
                                            dtype=tf.float32,
                                            initial_state=zero_state)
@@ -509,7 +509,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
 
                 # the max pool to reduce dimensions
                 if pools[ilayer]>1:
-                    merged = tf.pack(cur_inp, axis=1, name='concat_before_max_pool')
+                    merged = tf.stack(cur_inp, axis=1, name='concat_before_max_pool')
                     merged_shape = [x.value for x in merged.get_shape()]
                     merged = tf.reshape(merged, [shape[0]*shape[1]]+merged_shape[2:])
                     merged = slim.max_pool2d(merged,
@@ -517,7 +517,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
                                              stride=pools[ilayer])
                     merged_shape = [x.value for x in merged.get_shape()]
                     merged = tf.reshape(merged, shape[0:2]+merged_shape[1:])
-                    cur_inp = tf.unpack(merged, axis = 1)
+                    cur_inp = tf.unstack(merged, axis = 1)
             output = cur_inp
             ################Final Classification#################
             # concatentate outputs into a single tensor, the output size is (batch*nframe, H', W', C')
@@ -525,7 +525,7 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
             # remove the spatio dimensions to be compatible with the code before
             #hidden_out = tf.reshape(hidden_out, [shape[0]*shape[1], -1])
 
-            hidden_out = tf.pack(output, axis=1, name='pack_rnn_outputs')
+            hidden_out = tf.stack(output, axis=1, name='pack_rnn_outputs')
             hidden_out = tf.reshape(hidden_out, [shape[0] * shape[1], -1])
         else:
             raise ValueError("temporal_net invalid: %s" % FLAGS.temporal_net)
@@ -573,8 +573,8 @@ def LRCN(net_inputs, num_classes, for_training, initial_state=None):
         # set shape
         logits[0].set_shape(old_shape)
 
-    if FLAGS.phase == "rnn_inference":
-        logits += [state]
+    # if FLAGS.phase == "rnn_inference":
+    #     logits += [state]
 
     if FLAGS.action_mapping_arch != "":
         # first make sure that the different functions that modify logits doesn't collide
